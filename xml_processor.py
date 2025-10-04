@@ -56,7 +56,8 @@ def namespaces(archive, fname, file_path):
 
 def get_description_element(archive, fname):
       """
-      Извлекает элемент <description> из XML-файла в архиве и очищает его от пространств имен.
+      Извлекает элемент <description> из XML-файла в архиве.
+      Рекурсивно очищает извлеченный элемент и всех его потомков от пространств имен в тегах и атрибутах.
 
       Args:
           archive (zipfile.ZipFile): Объект zip-архива.
@@ -96,25 +97,19 @@ def get_description_element(archive, fname):
 
 def description_string(description_element):
     """
-    Анализирует XML-файл (FB2) и извлекает информацию из тега <description>.
-
-    Находит все дочерние элементы тега <description>, использует их имена в качестве столбцов DataFrame.
-    Значениями служат отсортированные по алфавиту и перечисленные через запятую имена
-    внутренних тегов каждого дочернего элемента.
+    Преобразует XML-элемент в компактную строку без форматирования.
 
     Args:
-        archive (zipfile.ZipFile): Объект zip-архива.
-        fname (str): Имя файла внутри архива.
-        file_path (str): Путь к zip-архиву.
+        description_element (lxml.etree._Element): XML-элемент для обработки.
 
     Returns:
-        pd.DataFrame: DataFrame с результатом обработки. В случае ошибки возвращает DataFrame с информацией об ошибке.
+        dict: Словарь с одним ключом 'description', значение которого - компактная XML-строка.
     """          
     data = {}
     # Очищаем от символов форматирования и атрибута namespace выгружая в строку и загружая из строки но уже с парсером
     xml_str_clean = re.sub(r'<description[^>]*>', r'<description>', etree.tostring(description_element, encoding='unicode'))
     parser = etree.XMLParser(remove_blank_text=True)
-    cleaned_elem = etree.fromstring(xml_str_clean, parser)  
+    cleaned_elem = etree.fromstring(xml_str_clean.encode('utf-8'), parser)  
  
     data["description"] = etree.tostring(cleaned_elem, encoding='unicode')
     
@@ -122,19 +117,16 @@ def description_string(description_element):
 
 def description_taglist(description_element):
     """
-    Анализирует XML-файл (FB2) и извлекает информацию из тега <description>.
+    Анализирует прямых потомков элемента <description>.
 
-    Находит все дочерние элементы тега <description>, использует их имена в качестве столбцов DataFrame.
-    Значениями служат отсортированные по алфавиту и перечисленные через запятую имена
-    внутренних тегов каждого дочернего элемента.
+    Создает словарь, где ключи - это имена тегов прямых потомков,
+    а значения - отсортированный, через запятую, список тегов их собственных дочерних элементов.
 
     Args:
-        archive (zipfile.ZipFile): Объект zip-архива.
-        fname (str): Имя файла внутри архива.
-        file_path (str): Путь к zip-архиву.
+        description_element (lxml.etree._Element): XML-элемент <description>.
 
     Returns:
-        pd.DataFrame: DataFrame с результатом обработки. В случае ошибки возвращает DataFrame с информацией об ошибке.
+        dict: Словарь с проанализированной структурой тегов.
     """          
     data = {}
     # Итерируемся по прямым потомкам <description> (например, <title-info>, <document-info>)
@@ -153,13 +145,15 @@ def description_taglist(description_element):
 
 def description_child_ontag(description_element, child_tag_name):
     """
-    Анализирует входящее поддерво <description> и извлекает текст из указанных дочерних тегов.
+    Находит все теги с именем `child_tag_name` внутри `description_element` и извлекает их текстовое содержимое.
 
     Args:
-        child_tag_name (str): Имя дочернего тега внутри <description>, текст которого нужно извлечь.
+        description_element (lxml.etree._Element): XML-элемент для поиска.
+        child_tag_name (str): Имя искомого тега.
 
     Returns:
-        info_res: dict с результатом. Если найдено несколько тегов, создает нумерованные столбцы.
+        dict: Словарь, где ключи - это `child_tag_name` с добавлением номера (e.g., 'genre1'),
+              а значения - объединенный текст из каждого найденного тега.
     """                   
     info_res = {}
     
@@ -181,23 +175,35 @@ def description_child_ontag(description_element, child_tag_name):
 
 def description_child_ontag_all(description_element, child_tag_name):
     """
-    Анализирует входящее поддерво <description> и извлекает текст из указанных дочерних тегов.
+    Находит все теги с именем `child_tag_name`, извлекает их текст и объединяет в одну строку.
+
+    Использует `description_child_ontag` для поиска, а затем соединяет все найденные
+    текстовые значения в одну строку через точку с запятой.
 
     Args:
-        child_tag_name (str): Имя дочернего тега внутри <description>, текст которого нужно извлечь.
+        description_element (lxml.etree._Element): XML-элемент для поиска.
+        child_tag_name (str): Имя искомого тега.
 
     Returns:
-        info_res: dict с результатом. Если найдено несколько тегов, создает нумерованные столбцы.
+        dict: Словарь с одним ключом `child_tag_name` и объединенной строкой в качестве значения.
     """                   
     info = description_child_ontag(description_element, child_tag_name)
-    info_res = {child_tag_name: '; '.join(str(v) for v in info.values())}
+    info_res = {child_tag_name: '; '.join(str(v) if v is not None else '' for v in info.values())}
     
     return info_res
 
 def get_authors_string(description_element):
       """
-      Находит всех авторов в description_element, собирает их полные имена
-      и возвращает в виде одной строки, разделенной точкой с запятой.
+      Извлекает полные имена и ID авторов из тега <title-info>.
+
+      Собирает полные имена (first-name, middle-name, last-name) и ID всех авторов,
+      объединяет их в две строки через точку с запятой.
+
+      Args:
+          description_element (lxml.etree._Element): XML-элемент <description>.
+
+      Returns:
+          dict: Словарь с ключами 'author' и 'id_author'.
       """
       info = {}
       # 1. Находим все элементы <author> на любом уровне вложенности
@@ -228,13 +234,17 @@ def get_authors_string(description_element):
 
 def catalog(description_element):
     """
-    Анализирует входящее поддерво <description> и извлекает текст из указанных дочерних тегов.
+    Собирает полный каталог информации из элемента <description>.
+
+    Вызывает несколько других функций-обработчиков для извлечения информации
+    об авторах, жанре, названии, языке и полной строки description,
+    и объединяет все в один словарь.
 
     Args:
-        child_tag_name (str): Имя дочернего тега внутри <description>, текст которого нужно извлечь.
-des
+        description_element (lxml.etree._Element): XML-элемент <description>.
+
     Returns:
-        info_res: dict с результатом. Если найдено несколько тегов, создает нумерованные столбцы.
+        dict: Сводный словарь с каталогом данных книги.
     """                   
     info_res = get_authors_string(description_element)
     info_genre = description_child_ontag_all(description_element, "title-info/genre")
@@ -250,16 +260,21 @@ des
 
 def description_processor(archive, fname, file_path, func, **kwargs):
     """
-    Анализирует XML-файл (FB2), находит тег <description> и извлекает текст из указанных дочерних тегов.
+    Универсальный обработчик для извлечения данных из элемента <description>.
+
+    Находит <description> в файле, а затем вызывает указанную в `func`
+    функцию-обработчик из словаря `DESC_PROCESSORS`, передавая ей
+    извлеченный элемент и дополнительные аргументы `kwargs`.
 
     Args:
         archive (zipfile.ZipFile): Объект zip-архива.
         fname (str): Имя файла внутри архива.
         file_path (str): Путь к zip-архиву.
-        child_tag_name (str): Имя дочернего тега внутри <description>, текст которого нужно извлечь.
+        func (str): Имя функции-обработчика для вызова.
+        **kwargs: Дополнительные именованные аргументы для функции-обработчика.
 
     Returns:
-        pd.DataFrame: DataFrame с результатом. Если найдено несколько тегов, создает нумерованные столбцы.
+        pd.DataFrame: DataFrame с результатом обработки.
     """
     try:
                     
