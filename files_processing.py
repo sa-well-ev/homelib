@@ -1,11 +1,9 @@
 import os
 import zipfile
 import pandas as pd
-import xml_processor
-from xml_processor import namespaces
+from xml_processor import description_processor
 
-
-def process_zipfile(file_path, processing_func):
+def process_zipfile(file_path, func, **kwargs):
     """
     Перебирает все файлы в zip-архиве и запускает обработку каждого файла выбранной функцией
 
@@ -20,12 +18,12 @@ def process_zipfile(file_path, processing_func):
     with zipfile.ZipFile(file_path) as archive:
         for fname in archive.namelist():
             if fname.endswith(".fb2") and not fname.endswith("/"):
-                df = processing_func(archive, fname, file_path)
+                df = description_processor(archive, fname, file_path, func, **kwargs)
                 all_result = pd.concat([all_result, df], ignore_index=True)
     return all_result
 
 
-def process_zipfolder(file_name, processing_func=namespaces):
+def process_zipfolder(file_name, func, **kwargs):
     """
     Перебирает все zip-архивы в директории файла и запускает обработку каждого архива
 
@@ -44,6 +42,6 @@ def process_zipfolder(file_name, processing_func=namespaces):
     ]
     all_result = pd.DataFrame()
     for zip_path in zip_files:
-        df = process_zipfile(zip_path, processing_func)
+        df = process_zipfile(zip_path, func, **kwargs)
         all_result = pd.concat([all_result, df], ignore_index=True)
     return all_result
