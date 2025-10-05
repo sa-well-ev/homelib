@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import sqlite3
 from xml_processor import description_processor
+from desc_analys import get_table_cols
 
 def process_zipfile(file_path, func, bd_insert, table_insert, **kwargs):
     """
@@ -77,3 +78,40 @@ def process_zipfolder(file_name, func, bd_insert=False, table_insert="lib_curren
             df = process_zipfile(zip_path, func, bd_insert, table_insert, **kwargs)
             all_result = pd.concat([all_result, df], ignore_index=True)
         return all_result
+    
+def clear_zipfolder(file_name='./lib', tbl_name='lib_delete', tbl_cols='zipfile, xml_filename'):
+    """Удаляет файлы из zip-архивов на основе списка из базы данных.
+
+    Функция получает из базы данных список файлов, которые необходимо удалить.
+    Она перебирает zip-архивы, указанные в списке, и создает их временные
+    копии, не включая файлы, предназначенные для удаления. Затем исходные
+    архивы заменяются их очищенными версиями.
+
+    Args:
+        file_name (str, optional): Путь к файлу или директории, используемый для
+                                   определения рабочей папки с архивами.
+                                   Defaults to './lib'.
+        tbl_name (str, optional): Имя таблицы в базе данных, содержащей
+                                  информацию об удаляемых файлах.
+                                  Defaults to 'lib_delete'.
+        tbl_cols (str, optional): Имена столбцов для извлечения из таблицы
+                                  (имя zip-архива и имя файла внутри архива),
+                                  перечисленные через запятую.
+                                  Defaults to 'zipfile, xml_filename'.
+
+    Returns:
+        None
+    """
+    df = get_table_cols(tbl_name=tbl_name, tbl_cols = tbl_cols)
+    folder = os.path.dirname(file_name)
+    for zipname, files in df.groupby('zipfile')['xml_filename']:
+        zipname = os.path.join(folder,zipname)
+        files_to_delete = set(files)
+        temp_zip = zipname + '.tmp'
+        with zipfile.ZipFile(zipname, 'r') as zin, zipfile.ZipFile(temp_zip, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zout:
+            for item in zin.infolist():
+                if item.filename not in files_to_delete:
+                    zout.writestr(item, zin.read(item.filename))
+        os.replace(temp_zip, zipname)
+        print(f'Файл {zipname} очищен на {len(files_to_delete)} файлов из {len(zin.infolist())}')
+    return

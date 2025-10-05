@@ -139,7 +139,7 @@ def description_taglist(description_element):
         child_tags.sort()
         
         # Записываем отсортированные и объединенные имена тегов
-        data[col_name] = ", ".join(child_tags)
+        data[col_name] = ";".join(child_tags)
     
     return data
 
@@ -188,7 +188,7 @@ def description_child_ontag_all(description_element, child_tag_name):
         dict: Словарь с одним ключом `child_tag_name` и объединенной строкой в качестве значения.
     """                   
     info = description_child_ontag(description_element, child_tag_name)
-    info_res = {child_tag_name.replace('/', '_'): '; '.join(str(v) if v is not None else '' for v in info.values())}
+    info_res = {child_tag_name.replace('/', '_').replace('-', '_'): ';'.join(str(v) if v is not None else '' for v in info.values())}
        
     return info_res
 
@@ -224,8 +224,8 @@ def get_authors_string(description_element):
 
       # 5. Объединяем список полных имен в одну строку через ';'
       # Дополнительно фильтруем пустые имена, если вдруг попадется тег <author> без дочерних элементов
-      final_authors_string = '; '.join(name for name in full_names if name)
-      ids = '; '.join(part for part in [author.findtext('id', default='').strip() for author in author_elements] if part)
+      final_authors_string = ';'.join(name for name in full_names if name)
+      ids = ';'.join(part for part in [author.findtext('id', default='').strip() for author in author_elements] if part)
 
       # 6. Возвращаем результат в требуемом формате
       info['author'] = final_authors_string
