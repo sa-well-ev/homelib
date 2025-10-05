@@ -188,8 +188,8 @@ def description_child_ontag_all(description_element, child_tag_name):
         dict: Словарь с одним ключом `child_tag_name` и объединенной строкой в качестве значения.
     """                   
     info = description_child_ontag(description_element, child_tag_name)
-    info_res = {child_tag_name: '; '.join(str(v) if v is not None else '' for v in info.values())}
-    
+    info_res = {child_tag_name.replace('/', '_'): '; '.join(str(v) if v is not None else '' for v in info.values())}
+       
     return info_res
 
 def get_authors_string(description_element):
@@ -229,7 +229,7 @@ def get_authors_string(description_element):
 
       # 6. Возвращаем результат в требуемом формате
       info['author'] = final_authors_string
-      info['id_author'] = ids
+      info['author_id'] = ids
       return info
 
 def catalog(description_element):
@@ -250,10 +250,12 @@ def catalog(description_element):
     info_genre = description_child_ontag_all(description_element, "title-info/genre")
     info_book_title = description_child_ontag_all(description_element, "title-info/book-title")
     info_lang = description_child_ontag_all(description_element, "title-info/lang")
+    info_book_id = description_child_ontag_all(description_element, "document-info/id")
     info_allstring = description_string(description_element)
     info_res.update(info_genre)
     info_res.update(info_book_title)
     info_res.update(info_lang)
+    info_res.update(info_book_id)
     info_res.update(info_allstring)
 
     return info_res

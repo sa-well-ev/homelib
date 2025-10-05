@@ -1,5 +1,6 @@
 .venv
 __pycache__
+data
 lib
 *.csv
 .ipynb_checkpoints
