@@ -3,6 +3,8 @@ import zipfile
 import pandas as pd
 import numpy as np
 import sqlite3
+import subprocess
+import tempfile
 from xml_processor import description_processor
 from desc_analys import get_table_cols
 
@@ -80,12 +82,11 @@ def process_zipfolder(file_name, func, bd_insert=False, table_insert="lib_curren
         return all_result
     
 def clear_zipfolder(file_name='./lib', tbl_name='lib_delete', tbl_cols='zipfile, xml_filename'):
-    """Удаляет файлы из zip-архивов на основе списка из базы данных.
+    """Удаляет файлы из zip-архивов на основе списка из базы данных с использованием 7z.
 
     Функция получает из базы данных список файлов, которые необходимо удалить.
-    Она перебирает zip-архивы, указанные в списке, и создает их временные
-    копии, не включая файлы, предназначенные для удаления. Затем исходные
-    архивы заменяются их очищенными версиями.
+    Она перебирает zip-архивы, указанные в списке, и вызывает утилиту 7z
+    для удаления перечисленных файлов непосредственно из архива.
 
     Args:
         file_name (str, optional): Путь к файлу или директории, используемый для
@@ -102,18 +103,46 @@ def clear_zipfolder(file_name='./lib', tbl_name='lib_delete', tbl_cols='zipfile,
     Returns:
         None
     """
-    df = get_table_cols(tbl_name=tbl_name, tbl_cols = tbl_cols)
+    df = get_table_cols(tbl_name=tbl_name, tbl_cols=tbl_cols)
     folder = os.path.dirname(file_name)
     for zipname, files in df.groupby('zipfile')['xml_filename']:
-        zipname = os.path.join(folder,zipname)
-        files_to_delete = set(files)
-        temp_zip = zipname + '.tmp'
-        with zipfile.ZipFile(zipname, 'r') as zin, zipfile.ZipFile(temp_zip, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zout:
-            for item in zin.infolist():
-                if item.filename not in files_to_delete:
-                    zout.writestr(item, zin.read(item.filename))
-        os.replace(temp_zip, zipname)
-        print(f'Файл {zipname} очищен на {len(files_to_delete)} файлов из {len(zin.infolist())}')
+        zip_path = os.path.join(folder, zipname)
+        files_to_delete = list(files)
+
+        if not os.path.exists(zip_path):
+            print(f"Архив {zip_path} не найден, пропуск.")
+            continue
+
+        if not files_to_delete:
+            print(f"Для архива {zip_path} нет файлов для удаления.")
+            continue
+
+        list_filename = ''
+        try:
+            # Создаем временный файл со списком файлов для удаления,
+            # чтобы избежать проблем с ограничением длины командной строки.
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix=".txt") as listfile:
+                listfile.write('\n'.join(files_to_delete))
+                list_filename = listfile.name
+            
+            command = ['7z', 'd', zip_path, f'@{list_filename}', '-y']
+            
+            subprocess.run(command, check=True, capture_output=True, text=True, encoding='cp866')
+            print(f"Из архива {zip_path} удалено {len(files_to_delete)} файлов.")
+
+        except FileNotFoundError:
+            print("Ошибка: '7z' не найден. Убедитесь, что он установлен и прописан в PATH.")
+            break
+        except subprocess.CalledProcessError as e:
+            print(f"Ошибка при удалении файлов из {zip_path}:")
+            print(e.stderr)
+        except Exception as e:
+            print(f"Произошла непредвиденная ошибка при обработке {zip_path}: {e}")
+        finally:
+            # Удаляем временный файл
+            if list_filename and os.path.exists(list_filename):
+                os.remove(list_filename)
+            
     return
 
 def repack_zipfolder(file_name, dest_folder="errors", tbl_name='lib_errors', tbl_cols='zipfile, xml_filename'):
