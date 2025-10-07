@@ -115,3 +115,65 @@ def clear_zipfolder(file_name='./lib', tbl_name='lib_delete', tbl_cols='zipfile,
         os.replace(temp_zip, zipname)
         print(f'Файл {zipname} очищен на {len(files_to_delete)} файлов из {len(zin.infolist())}')
     return
+
+def repack_zipfolder(file_name, dest_folder="errors", tbl_name='lib_errors', tbl_cols='zipfile, xml_filename'):
+    """Создает копии zip-архивов в другой директории, включая только указанные файлы.
+
+    Функция получает из базы данных список файлов, которые необходимо
+    включить в новые архивы. Она читает исходные архивы из `source_folder`,
+    создает их копии с теми же именами в `dest_folder`, но в эти копии
+    помещает только те файлы, которые указаны в списке из базы данных.
+
+    Args:
+        source_folder (str): Путь к папке с исходными zip-архивами.
+        dest_folder (str): Путь к папке для сохранения новых архивов.
+        tbl_name (str, optional): Имя таблицы в базе данных, содержащей
+                                  информацию о включаемых файлах.
+                                  Defaults to 'lib_repack'.
+        tbl_cols (str, optional): Имена столбцов для извлечения из таблицы
+                                  (имя zip-архива и имя файла внутри архива),
+                                  перечисленные через запятую.
+                                  Defaults to 'zipfile, xml_filename'.
+
+    Returns:
+        None
+    """
+    try:
+        df = get_table_cols(tbl_name=tbl_name, tbl_cols=tbl_cols)
+    except Exception as e:
+        print(f"Ошибка при получении данных из таблицы {tbl_name}: {e}")
+        return
+
+    os.makedirs(dest_folder, exist_ok=True)
+    source_folder = os.path.dirname(file_name)
+    for zipname, files in df.groupby('zipfile')['xml_filename']:
+        source_zip_path = os.path.join(source_folder, zipname)
+        dest_zip_path = os.path.join(dest_folder, zipname)
+
+        if not os.path.isfile(source_zip_path):
+            print(f'Исходный архив {source_zip_path} не найден, пропуск.')
+            continue
+
+        files_to_include = set(files)
+        
+        try:
+            with zipfile.ZipFile(source_zip_path, 'r') as zin:
+                # Файлы, которые есть и в списке, и в исходном архиве
+                files_to_write = files_to_include.intersection(zin.namelist())
+
+                if not files_to_write:
+                    print(f'В {source_zip_path} не найдено файлов из списка. Архив {dest_zip_path} не создан.')
+                    continue
+                
+                with zipfile.ZipFile(dest_zip_path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zout:
+                    for filename in files_to_write:
+                        zout.writestr(filename, zin.read(filename))
+                
+                print(f'Создан архив {dest_zip_path} с {len(files_to_write)} файлами.')
+
+        except FileNotFoundError:
+            print(f'Ошибка: не удалось найти {source_zip_path} во время чтения.')
+        except Exception as e:
+            print(f'Произошла ошибка при обработке {source_zip_path}: {e}')
+            
+    return

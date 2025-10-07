@@ -72,6 +72,9 @@ def get_description_element(archive, fname):
               
               # Берем первый элемент с помощью next()
               event, elem = next(context)
+              # Удаляем комментарии
+              for comment in elem.xpath('.//comment()'):
+                  comment.getparent().remove(comment)
 
             # Очищаем пространства имен
             # 1. Удаляем префикс из имени тега у самого элемента и всех его потомков
@@ -79,21 +82,34 @@ def get_description_element(archive, fname):
                   el.tag = etree.QName(el).localname
                   # Удаляем namespace из атрибутов
                   for attr_name in list(el.attrib):
-                    local_attr_name = etree.QName(attr_name).localname
+                    try:
+                        # Пытаемся обработать имя атрибута стандартным способом
+                        local_attr_name = etree.QName(attr_name).localname
+                    except ValueError:
+                        # Если возникает ошибка (как с 'l:href'),
+                        # вручную отрезаем префикс
+                        if ':' in attr_name:
+                            local_attr_name = attr_name.split(':', 1)[1]
+                        else:
+                            local_attr_name = attr_name
                     if attr_name != local_attr_name:
                       el.attrib[local_attr_name] = el.attrib.pop(attr_name)
                             
               # 2. Удаляем объявления xmlns, которые теперь не используются
               etree.cleanup_namespaces(elem)
 
+              # 3. Очищаем хвост элемента от возможного мусора
+              if elem.tail:
+                elem.tail = None
+
           return elem
 
       except StopIteration:
           # next() не нашел элемент <description>
           return None
-      except Exception:
-          # Любая другая ошибка (парсинг, открытие файла и т.д.)
-          return None
+    #   except Exception:
+    #       # Любая другая ошибка (парсинг, открытие файла и т.д.)
+    #       return None
 
 def description_string(description_element):
     """
@@ -232,7 +248,7 @@ def get_authors_string(description_element):
       info['author_id'] = ids
       return info
 
-def catalog(description_element):
+def catalog(description_element, desc_srting=True):
     """
     Собирает полный каталог информации из элемента <description>.
 
@@ -251,12 +267,13 @@ def catalog(description_element):
     info_book_title = description_child_ontag_all(description_element, "title-info/book-title")
     info_lang = description_child_ontag_all(description_element, "title-info/lang")
     info_book_id = description_child_ontag_all(description_element, "document-info/id")
-    info_allstring = description_string(description_element)
     info_res.update(info_genre)
     info_res.update(info_book_title)
     info_res.update(info_lang)
     info_res.update(info_book_id)
-    info_res.update(info_allstring)
+    if desc_srting:
+      info_allstring = description_string(description_element)
+      info_res.update(info_allstring)
 
     return info_res
 
