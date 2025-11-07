@@ -145,20 +145,23 @@ def clear_zipfolder(file_name='./lib', tbl_name='lib_delete', tbl_cols='zipfile,
             
     return
 
-def repack_zipfolder(file_name, dest_folder="errors", tbl_name='lib_errors', tbl_cols='zipfile, xml_filename'):
-    """Создает копии zip-архивов в другой директории, включая только указанные файлы.
+import shutil
 
-    Функция получает из базы данных список файлов, которые необходимо
-    включить в новые архивы. Она читает исходные архивы из `source_folder`,
-    создает их копии с теми же именами в `dest_folder`, но в эти копии
-    помещает только те файлы, которые указаны в списке из базы данных.
+def repack_zipfolder(file_name, dest_folder="errors", tbl_name='lib_errors', tbl_cols='zipfile, xml_filename'):
+    """Создает копии zip-архивов, включая только указанные файлы, с использованием 7z.
+
+    Функция получает из базы данных список файлов для включения в новые архивы.
+    Она использует утилиту 7z для извлечения нужных файлов из исходного
+    архива во временную папку, а затем создает новый архив в `dest_folder`
+    из этих файлов, сохраняя структуру каталогов.
 
     Args:
-        source_folder (str): Путь к папке с исходными zip-архивами.
+        file_name (str): Путь к файлу или директории для определения
+                         рабочей папки с исходными архивами.
         dest_folder (str): Путь к папке для сохранения новых архивов.
         tbl_name (str, optional): Имя таблицы в базе данных, содержащей
                                   информацию о включаемых файлах.
-                                  Defaults to 'lib_repack'.
+                                  Defaults to 'lib_errors'.
         tbl_cols (str, optional): Имена столбцов для извлечения из таблицы
                                   (имя zip-архива и имя файла внутри архива),
                                   перечисленные через запятую.
@@ -175,6 +178,7 @@ def repack_zipfolder(file_name, dest_folder="errors", tbl_name='lib_errors', tbl
 
     os.makedirs(dest_folder, exist_ok=True)
     source_folder = os.path.dirname(file_name)
+
     for zipname, files in df.groupby('zipfile')['xml_filename']:
         source_zip_path = os.path.join(source_folder, zipname)
         dest_zip_path = os.path.join(dest_folder, zipname)
@@ -183,26 +187,56 @@ def repack_zipfolder(file_name, dest_folder="errors", tbl_name='lib_errors', tbl
             print(f'Исходный архив {source_zip_path} не найден, пропуск.')
             continue
 
-        files_to_include = set(files)
-        
-        try:
-            with zipfile.ZipFile(source_zip_path, 'r') as zin:
-                # Файлы, которые есть и в списке, и в исходном архиве
-                files_to_write = files_to_include.intersection(zin.namelist())
+        files_to_include = list(files)
+        if not files_to_include:
+            print(f"Для архива {zipname} нет файлов для включения.")
+            continue
 
-                if not files_to_write:
-                    print(f'В {source_zip_path} не найдено файлов из списка. Архив {dest_zip_path} не создан.')
-                    continue
-                
-                with zipfile.ZipFile(dest_zip_path, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zout:
-                    for filename in files_to_write:
-                        zout.writestr(filename, zin.read(filename))
-                
-                print(f'Создан архив {dest_zip_path} с {len(files_to_write)} файлами.')
+        temp_dir = None
+        list_filename = ''
+        try:
+            temp_dir = tempfile.mkdtemp()
+
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix=".txt") as listfile:
+                listfile.write('\n'.join(files_to_include))
+                list_filename = listfile.name
+
+            # Извлекаем нужные файлы, сохраняя структуру каталогов
+            extract_command = ['7z', 'x', source_zip_path, f'-o{temp_dir}', f'@{list_filename}', '-y']
+            subprocess.run(extract_command, check=True, capture_output=True, text=True, encoding='cp866')
+
+            # Считаем, сколько файлов было фактически извлечено
+            extracted_count = 0
+            for _, _, f_list in os.walk(temp_dir):
+                extracted_count += len(f_list)
+
+            if extracted_count == 0:
+                print(f'В {source_zip_path} не найдено файлов из списка. Архив {dest_zip_path} не создан.')
+                continue
+
+            # Создаем новый архив из извлеченных файлов
+            abs_dest_zip_path = os.path.abspath(dest_zip_path)
+            add_command = ['7z', 'a', abs_dest_zip_path, '*', '-y']
+            subprocess.run(add_command, check=True, capture_output=True, text=True, encoding='cp866', cwd=temp_dir)
+            
+            print(f'Создан архив {dest_zip_path} с {extracted_count} файлами.')
 
         except FileNotFoundError:
-            print(f'Ошибка: не удалось найти {source_zip_path} во время чтения.')
+            print("Ошибка: '7z' не найден. Убедитесь, что он установлен и прописан в PATH.")
+            break
+        except subprocess.CalledProcessError as e:
+            if "No files to process" in e.stdout or "No files to process" in e.stderr:
+                 print(f'В {source_zip_path} не найдено файлов из списка. Архив {dest_zip_path} не создан.')
+            else:
+                print(f"Ошибка при обработке архива {zipname}:")
+                print(f"Команда: {' '.join(e.args)}")
+                print(f"Stderr: {e.stderr}")
         except Exception as e:
-            print(f'Произошла ошибка при обработке {source_zip_path}: {e}')
+            print(f"Произошла непредвиденная ошибка при обработке {zipname}: {e}")
+        finally:
+            if list_filename and os.path.exists(list_filename):
+                os.remove(list_filename)
+            if temp_dir and os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
             
     return
