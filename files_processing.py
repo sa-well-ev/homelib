@@ -240,3 +240,68 @@ def repack_zipfolder(file_name, dest_folder="errors", tbl_name='lib_errors', tbl
                 shutil.rmtree(temp_dir)
             
     return
+
+def convert_zip_to_7z(file_name, delete_original=False):
+    """
+    Конвертирует все zip-архивы в папке в формат 7z с максимальным сжатием.
+
+    Args:
+        folder_path (str): Путь к папке с zip-архивами.
+        delete_original (bool, optional): Если True, удаляет исходный zip-архив
+                                          после успешной конвертации.
+                                          Defaults to False.
+    """
+    folder_path = os.path.dirname(file_name)
+    # Создаем подпапку для 7z архивов
+    output_folder = os.path.join(folder_path, '7z')
+    os.makedirs(output_folder, exist_ok=True)
+    
+    zip_files = [
+        f for f in os.listdir(folder_path) 
+        if f.endswith(".zip") and os.path.isfile(os.path.join(folder_path, f))
+    ]
+
+    if not zip_files:
+        print(f"В папке {folder_path} не найдено zip-архивов.")
+        return
+
+    for zip_filename in zip_files:
+        zip_filepath = os.path.join(folder_path, zip_filename)
+        seven_zip_filepath = os.path.join(output_folder, zip_filename)
+
+        print(f"Конвертация {zip_filepath} в {seven_zip_filepath}...")
+
+        temp_dir = tempfile.mkdtemp()
+        try:            
+            # Извлекаем нужные файлы, сохраняя структуру каталогов
+            extract_command = ['7z', 'e', zip_filepath, f'-o{temp_dir}', '-y']
+            subprocess.run(extract_command, check=True, capture_output=True, text=True, encoding='cp866')
+
+            # Создаем 7z архив из содержимого временной папки
+            add_command = ['7z', 'a', '-tzip', '-m0=bzip2', '-mmt=on', '-mx=9', seven_zip_filepath, '*']
+            subprocess.run(add_command, check=True, cwd=temp_dir, capture_output=True, text=True, encoding='cp866')
+
+            print(f"Архив {seven_zip_filepath} успешно создан.")
+
+            # Если указано, удаляем исходный zip-файл
+            if delete_original:
+                os.remove(zip_filepath)
+                print(f"Исходный файл {zip_filepath} удален.")
+
+        except FileNotFoundError:
+            print("Ошибка: '7z' не найден. Убедитесь, что он установлен и прописан в PATH.")
+            break
+        except zipfile.BadZipFile:
+            print(f"Ошибка: Файл {zip_filepath} поврежден или не является zip-архивом.")
+            continue
+        except subprocess.CalledProcessError as e:
+            print(f"Ошибка при создании архива {seven_zip_filepath}: {e.stderr}")
+            continue
+        except Exception as e:
+            print(f"Произошла непредвиденная ошибка при обработке {zip_filepath}: {e}")
+            continue
+        finally:
+            # Очищаем временную директорию
+            shutil.rmtree(temp_dir)
+
+    print("Конвертация завершена.")
